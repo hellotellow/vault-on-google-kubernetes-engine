@@ -4,10 +4,10 @@ This tutorial walks you through provisioning a multi-node [HashiCorp Vault](http
 
 ## Cluster Features
 
-* High Availability - The Vault cluster will be provisioned in [multi-server mode](https://www.vaultproject.io/docs/concepts/ha.html) for high availability.
-* Google Cloud Storage Storage Backend - Vault's data is persisted in [Google Cloud Storage](https://cloud.google.com/storage).
-* Production Hardening - Vault is configured and deployed based on the guidance found in the [production hardening](https://www.vaultproject.io/guides/operations/production.html) guide.
-* Auto Initialization and Unsealing - Vault is automatically initialized and unsealed at runtime. Keys are encrypted using [Cloud KMS](https://cloud.google.com/kms) and stored on [Google Cloud Storage](https://cloud.google.com/storage).
+- High Availability - The Vault cluster will be provisioned in [multi-server mode](https://www.vaultproject.io/docs/concepts/ha.html) for high availability.
+- Google Cloud Storage Storage Backend - Vault's data is persisted in [Google Cloud Storage](https://cloud.google.com/storage).
+- Production Hardening - Vault is configured and deployed based on the guidance found in the [production hardening](https://www.vaultproject.io/guides/operations/production.html) guide.
+- Auto Initialization and Unsealing - Vault is automatically initialized and unsealed at runtime. Keys are encrypted using [Cloud KMS](https://cloud.google.com/kms) and stored on [Google Cloud Storage](https://cloud.google.com/storage).
 
 ## Tutorial
 
@@ -62,7 +62,7 @@ KMS_KEY_ID="projects/${PROJECT_ID}/locations/global/keyRings/vault/cryptoKeys/va
 
 ### Create KMS Keyring and Crypto Key
 
-In this section you will create a Cloud KMS [keyring](https://cloud.google.com/kms/docs/object-hierarchy#key_ring) and [cryptographic key](https://cloud.google.com/kms/docs/object-hierarchy#key) suitable for encrypting and decrypting Vault [master keys](https://www.vaultproject.io/docs/concepts/seal.html) and [root tokens](https://www.vaultproject.io/docs/concepts/tokens.html#root-tokens). 
+In this section you will create a Cloud KMS [keyring](https://cloud.google.com/kms/docs/object-hierarchy#key_ring) and [cryptographic key](https://cloud.google.com/kms/docs/object-hierarchy#key) suitable for encrypting and decrypting Vault [master keys](https://www.vaultproject.io/docs/concepts/seal.html) and [root tokens](https://www.vaultproject.io/docs/concepts/tokens.html#root-tokens).
 
 Create the `vault` kms keyring:
 
@@ -147,8 +147,7 @@ gcloud container clusters create vault \
   --project ${PROJECT_ID}
 ```
 
-> Warning: Each node in the `vault` Kubernetes cluster has access to the `vault-server` service account. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through an internal or external load balancer. 
-
+> Warning: Each node in the `vault` Kubernetes cluster has access to the `vault-server` service account. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through an internal or external load balancer.
 
 ### Provision IP Address
 
@@ -173,7 +172,7 @@ VAULT_LOAD_BALANCER_IP=$(gcloud compute addresses describe vault \
 
 ### Generate TLS Certificates
 
-In this section you will generate the self-signed TLS certificates used to secure communication between Vault clients and servers. 
+In this section you will generate the self-signed TLS certificates used to secure communication between Vault clients and servers.
 
 Create a Certificate Authority:
 
@@ -216,9 +215,9 @@ Create the `vault` configmap:
 
 ```
 kubectl create configmap vault \
-  --from-literal api-addr=https://${VAULT_LOAD_BALANCER_IP}:8200 \
-  --from-literal gcs-bucket-name=${GCS_BUCKET_NAME} \
-  --from-literal kms-key-id=${KMS_KEY_ID}
+  --from-literal api_addr=https://${VAULT_LOAD_BALANCER_IP}:8200 \
+  --from-literal gcs_bucket_name=${GCS_BUCKET_NAME} \
+  --from-literal kms_key_id=${KMS_KEY_ID}
 ```
 
 #### Create the Vault StatefulSet
@@ -230,6 +229,7 @@ Create the `vault` statefulset:
 ```
 kubectl apply -f vault.yaml
 ```
+
 ```
 service "vault" created
 statefulset "vault" created
@@ -240,6 +240,7 @@ At this point the multi-node cluster is up and running:
 ```
 kubectl get pods
 ```
+
 ```
 NAME      READY     STATUS    RESTARTS   AGE
 vault-0   2/2       Running   0          1m
@@ -253,6 +254,7 @@ In a typical deployment Vault must be initialized and unsealed before it can be 
 ```
 kubectl logs vault-0 -c vault-init
 ```
+
 ```
 2018/11/03 22:37:35 Starting the vault-init service...
 2018/11/03 22:37:35 Get https://127.0.0.1:8200/v1/sys/health: dial tcp 127.0.0.1:8200: connect: connection refused
@@ -311,6 +313,7 @@ Wait until the `EXTERNAL-IP` is populated:
 ```
 kubectl get svc vault-load-balancer
 ```
+
 ```
 NAME                  TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)
 vault-load-balancer   LoadBalancer   XX.XX.XXX.XXX   <pending>     8200:31805/TCP,8201:32754/TCP
@@ -329,6 +332,7 @@ Get the status of the Vault cluster:
 ```
 vault status
 ```
+
 ```
 Key                    Value
 ---                    -----
@@ -359,7 +363,7 @@ export VAULT_TOKEN=$(gsutil cat gs://${GCS_BUCKET_NAME}/root-token.enc | \
     --keyring vault \
     --key vault-init \
     --ciphertext-file - \
-    --plaintext-file - 
+    --plaintext-file -
 )
 ```
 

@@ -3,12 +3,16 @@ kind: Service
 metadata:
   name: vault
 spec:
-  clusterIP: None
+  clusterIP: 10.52.12.236
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  loadBalancerIP: 35.204.197.145
   ports:
-    - name: http
-      port: 8200
-    - name: server
-      port: 8201
+    - name: vault-port
+      nodePort: 31763
+      port: 443
+      protocol: TCP
+      targetPort: 8200
   selector:
     app: vault
 ---
@@ -19,7 +23,7 @@ metadata:
   labels:
     app: vault
 spec:
-  serviceName: "vault"
+  serviceName: vault
   selector:
     matchLabels:
       app: vault
@@ -47,15 +51,15 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: vault
-                  key: gcs-bucket-name
+                  key: gcs_bucket_name
           command: ["/bin/sh", "-c"]
           args:
             - |
               cat > /etc/vault/config/vault.hcl <<EOF
               listener "tcp" {
                 address = "0.0.0.0:8200"
-                tls_cert_file = "/etc/vault/tls/vault.pem"
-                tls_key_file = "/etc/vault/tls/vault-key.pem"
+                tls_cert_file = "/etc/vault/tls/vault.crt"
+                tls_key_file = "/etc/vault/tls/vault.key"
                 tls_min_version = "tls12"
               }
 
@@ -81,25 +85,26 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: vault
-                  key: gcs-bucket-name
-            - name: "KMS_KEY_ID"
+                  key: gcs_bucket_name
+            - name: KMS_KEY_ID
               valueFrom:
                 configMapKeyRef:
                   name: vault
-                  key: kms-key-id
+                  key: kms_key_id
         - name: vault
           image: "vault:0.11.4"
           env:
             - name: POD_IP
               valueFrom:
                 fieldRef:
-                  fieldPath: "status.podIP"
-            - name: "VAULT_API_ADDR"
+                  fieldPath: status.podIP
+            # Used by Vault as redirect address
+            - name: VAULT_API_ADDR
               valueFrom:
                 configMapKeyRef:
                   name: vault
-                  key: api-addr
-            - name: "VAULT_CLUSTER_ADDR"
+                  key: api_addr
+            - name: VAULT_CLUSTER_ADDR
               value: "https://$(POD_IP):8201"
           args:
             - "server"
@@ -107,21 +112,21 @@ spec:
           ports:
             - name: http
               containerPort: 8200
-              protocol: "TCP"
+              protocol: TCP
             - name: server
               containerPort: 8201
-              protocol: "TCP"
+              protocol: TCP
           readinessProbe:
             httpGet:
               path: "/v1/sys/health?standbyok=true"
-              port: 8200
+              port: http
               scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
-            requests:
-              cpu: "500m"
-              memory: "1Gi"
+            limits:
+              cpu: "100m"
+              memory: "256Mi"
           securityContext:
             capabilities:
               add:
@@ -136,4 +141,4 @@ spec:
           emptyDir: {}
         - name: vault-tls
           secret:
-            secretName: vault
+            secretName: vault-tls
