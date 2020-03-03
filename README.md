@@ -1,5 +1,7 @@
 # Vault on Google Kubernetes Engine
 
+## [DEPRECATED] This repo is used for the production setup, but will be replaced by https://github.com/hellotellow/vault.
+
 This tutorial walks you through provisioning a multi-node [HashiCorp Vault](https://www.vaultproject.io) cluster on [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine).
 
 ## Cluster Features
