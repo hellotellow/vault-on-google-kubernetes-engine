@@ -52,15 +52,23 @@ spec:
                 configMapKeyRef:
                   name: vault
                   key: gcs_bucket_name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           command: ["/bin/sh", "-c"]
           args:
             - |
               cat > /etc/vault/config/vault.hcl <<EOF
               listener "tcp" {
-                address = "0.0.0.0:8200"
+                address = "127.0.0.1:8200"
+                cluster_address = "0.0.0.0:8201"
                 tls_cert_file = "/etc/vault/tls/vault.crt"
                 tls_key_file = "/etc/vault/tls/vault.key"
                 tls_min_version = "tls12"
+                max_request_size = 1048576
+                x_forwarded_for_authorized_addrs = "127.0.0.1/32"
+                x_forwarded_for_reject_not_present = "false"
               }
 
               storage "gcs" {
@@ -71,10 +79,90 @@ spec:
               ui = true
               EOF
 
+              # Vault 0.11 cannot limit concurrent requests, and with mlock
+              # the memory each request body takes stays resident. The proxy
+              # caps connections, spools bodies to disk and lets at most
+              # max_conns requests reach Vault at once. The active node also
+              # serves up to max_conns requests forwarded by the standby, so
+              # its memory limit must cover twice that many 1m bodies.
+              cat > /etc/vault/config/nginx.conf <<'EOF'
+              worker_processes 1;
+              worker_rlimit_nofile 4096;
+              pid /tmp/nginx.pid;
+              error_log stderr warn;
+
+              events {
+                worker_connections 1024;
+              }
+
+              http {
+                access_log off;
+                server_tokens off;
+
+                client_header_timeout 10s;
+                client_body_timeout 10s;
+                send_timeout 30s;
+                keepalive_timeout 60s;
+                client_max_body_size 1m;
+                client_body_buffer_size 16k;
+                client_body_temp_path /var/cache/nginx/client_temp;
+                proxy_temp_path /var/cache/nginx/proxy_temp;
+
+                upstream vault {
+                  server 127.0.0.1:8200 max_conns=16;
+                }
+
+                server {
+                  listen POD_IP:8200 ssl rcvbuf=64k;
+                  ssl_certificate /etc/vault/tls/vault.crt;
+                  ssl_certificate_key /etc/vault/tls/vault.key;
+                  ssl_protocols TLSv1.2 TLSv1.3;
+
+                  location / {
+                    proxy_pass https://vault;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host $host;
+                    proxy_set_header Connection "";
+                    proxy_set_header X-Forwarded-For $remote_addr;
+                    proxy_next_upstream off;
+                    proxy_read_timeout 100s;
+                  }
+                }
+              }
+              EOF
+              sed -i "s/POD_IP/${POD_IP}/" /etc/vault/config/nginx.conf
+
           volumeMounts:
             - name: vault-config
               mountPath: /etc/vault/config
       containers:
+        - name: vault-proxy
+          image: "nginx:1.30.7-alpine"
+          command: ["nginx", "-c", "/etc/vault/config/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - name: http
+              containerPort: 8200
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true"
+              port: http
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: vault-config
+              mountPath: /etc/vault/config
+              readOnly: true
+            - name: vault-tls
+              mountPath: /etc/vault/tls
+              readOnly: true
+            - name: vault-proxy-cache
+              mountPath: /var/cache/nginx
         - name: vault-init
           image: gcr.io/hightowerlabs/vault-init
           imagePullPolicy: Always
@@ -110,23 +198,13 @@ spec:
             - "server"
             - "-config=/etc/vault/config/vault.hcl"
           ports:
-            - name: http
-              containerPort: 8200
-              protocol: TCP
             - name: server
               containerPort: 8201
               protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: "/v1/sys/health?standbyok=true"
-              port: http
-              scheme: HTTPS
-            initialDelaySeconds: 5
-            periodSeconds: 10
           resources:
             limits:
               cpu: "100m"
-              memory: "256Mi"
+              memory: "512Mi"
           securityContext:
             capabilities:
               add:
@@ -142,3 +220,5 @@ spec:
         - name: vault-tls
           secret:
             secretName: vault-tls
+        - name: vault-proxy-cache
+          emptyDir: {}
