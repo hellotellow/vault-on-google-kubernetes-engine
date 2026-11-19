@@ -245,9 +245,11 @@ kubectl get pods
 
 ```
 NAME      READY     STATUS    RESTARTS   AGE
-vault-0   2/2       Running   0          1m
-vault-1   2/2       Running   0          1m
+vault-0   3/3       Running   0          1m
+vault-1   3/3       Running   0          1m
 ```
+
+Vault listens on `127.0.0.1:8200` inside each pod. Clients reach it through the `vault-proxy` nginx container on the pod IP, port 8200, which rejects request bodies over 1 MiB, limits concurrent connections, and forwards at most 16 requests to Vault at a time so that client traffic cannot exhaust Vault's memory. The `vault-init` container talks to Vault directly on `127.0.0.1:8200`.
 
 ### Automatic Initialization and Unsealing
 
