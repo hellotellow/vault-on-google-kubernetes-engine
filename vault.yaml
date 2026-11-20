@@ -33,6 +33,7 @@ spec:
       labels:
         app: vault
     spec:
+      serviceAccountName: vault-server
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

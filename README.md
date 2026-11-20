@@ -41,6 +41,7 @@ gcloud services enable \
   container.googleapis.com \
   containerregistry.googleapis.com \
   iam.googleapis.com \
+  iamcredentials.googleapis.com \
   --project ${PROJECT_ID}
 ```
 
@@ -132,24 +133,56 @@ gcloud kms keys add-iam-policy-binding \
   --project ${PROJECT_ID}
 ```
 
+### Create the Node IAM Service Account
+
+The cluster nodes run as a separate, minimal IAM service account. It can write logs and metrics, but it has no access to the Vault storage bucket or the `vault-init` KMS encryption key.
+
+Create the `vault-node` service account:
+
+```
+gcloud iam service-accounts create vault-node \
+  --display-name "vault node service account" \
+  --project ${PROJECT_ID}
+```
+
+Grant the permissions GKE nodes require:
+
+```
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+  --member serviceAccount:vault-node@${PROJECT_ID}.iam.gserviceaccount.com \
+  --role roles/container.defaultNodeServiceAccount
+```
+
 ### Provision a Kubernetes Cluster
 
-In this section you will provision a three node Kubernetes cluster using [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine) with access to the `vault-server` service account across the entire cluster.
+In this section you will provision a three node Kubernetes cluster using [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine) with [Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) enabled. Only the Vault pods are bound to the `vault-server` service account.
 
 Create the `vault` Kubernetes cluster:
 
 ```
 gcloud container clusters create vault \
   --enable-autorepair \
-  --cluster-version 1.11.2-gke.9 \
+  --release-channel regular \
   --machine-type n1-standard-2 \
-  --service-account vault-server@${PROJECT_ID}.iam.gserviceaccount.com \
+  --service-account vault-node@${PROJECT_ID}.iam.gserviceaccount.com \
+  --workload-pool ${PROJECT_ID}.svc.id.goog \
+  --workload-metadata GKE_METADATA \
   --num-nodes 3 \
   --zone ${COMPUTE_ZONE} \
   --project ${PROJECT_ID}
 ```
 
-> Warning: Each node in the `vault` Kubernetes cluster has access to the `vault-server` service account. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through an internal or external load balancer.
+Allow the `vault-server` Kubernetes service account to act as the `vault-server` IAM service account:
+
+```
+gcloud iam service-accounts add-iam-policy-binding \
+  vault-server@${PROJECT_ID}.iam.gserviceaccount.com \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:${PROJECT_ID}.svc.id.goog[default/vault-server]" \
+  --project ${PROJECT_ID}
+```
+
+> Warning: Do not grant the `vault-node` service account access to the Vault storage bucket or the `vault-init` KMS key. Pods that use `hostNetwork` bypass the GKE metadata server and receive the node service account. Any pod that runs as the `vault-server` Kubernetes service account in the `default` namespace receives the `vault-server` identity, so restrict who can create pods in that namespace. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through an internal or external load balancer.
 
 ### Provision IP Address
 
@@ -197,6 +230,17 @@ cfssl gencert \
 ### Deploy Vault
 
 In this section you will deploy the multi-node Vault cluster using a collection of Kubernetes and application configuration files.
+
+Create the `vault-server` Kubernetes service account used by the Vault pods and bind it to the `vault-server` IAM service account:
+
+```
+kubectl create serviceaccount vault-server
+```
+
+```
+kubectl annotate serviceaccount vault-server \
+  iam.gke.io/gcp-service-account=vault-server@${PROJECT_ID}.iam.gserviceaccount.com
+```
 
 Create the `vault` secret to hold the Vault TLS certificates:
 
