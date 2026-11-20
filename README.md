@@ -149,17 +149,20 @@ gcloud container clusters create vault \
   --project ${PROJECT_ID}
 ```
 
-> Warning: Each node in the `vault` Kubernetes cluster has access to the `vault-server` service account. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through an internal or external load balancer.
+> Warning: Each node in the `vault` Kubernetes cluster has access to the `vault-server` service account. The `vault` cluster should only be used for running Vault. Other workloads should run on a different cluster and access Vault through the internal load balancer.
 
 ### Provision IP Address
 
-In this section you will create a public IP address that will be used to expose the Vault server to external clients.
+In this section you will reserve an internal IP address in the cluster's VPC subnet that will be used to expose the Vault server to clients on private networks.
+
+> Warning: Do not expose Vault on a public IP address. The `sys/init`, `sys/unseal`, `sys/generate-root` and `sys/rekey` endpoints accept requests without a Vault token, so anyone who can reach the API can block root token generation and rekeying, or reset unseal progress while Vault is sealed. Reach the internal load balancer over a VPN, Cloud Interconnect or a bastion host in the VPC.
 
 Create the `vault` compute address:
 
 ```
 gcloud compute addresses create vault \
   --region ${COMPUTE_REGION} \
+  --subnet default \
   --project ${PROJECT_ID}
 ```
 
@@ -281,7 +284,9 @@ A [readiness probe](https://kubernetes.io/docs/tasks/configure-pod-container/con
 
 ### Expose the Vault Cluster
 
-In this section you will expose the Vault cluster using an external network load balancer.
+In this section you will expose the Vault cluster using an internal TCP load balancer that is only reachable from inside the VPC.
+
+Only the API port is exposed. Vault servers reach each other on the cluster port (`8201`) through their pod IP addresses, so it is not published on the load balancer.
 
 Generate the `vault` service configuration:
 
@@ -291,14 +296,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault-load-balancer
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+    networking.gke.io/load-balancer-type: "Internal"
 spec:
   type: LoadBalancer
   loadBalancerIP: ${VAULT_LOAD_BALANCER_IP}
   ports:
     - name: http
       port: 8200
-    - name: server
-      port: 8201
   selector:
     app: vault
 EOF
@@ -318,12 +324,12 @@ kubectl get svc vault-load-balancer
 
 ```
 NAME                  TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)
-vault-load-balancer   LoadBalancer   XX.XX.XXX.XXX   <pending>     8200:31805/TCP,8201:32754/TCP
+vault-load-balancer   LoadBalancer   XX.XX.XXX.XXX   <pending>     8200:31805/TCP
 ```
 
 ### Smoke Tests
 
-Source the `vault.env` script to configure the vault CLI to use the Vault cluster via the external load balancer:
+From a machine with access to the VPC, source the `vault.env` script to configure the vault CLI to use the Vault cluster via the internal load balancer:
 
 ```
 source vault.env
